@@ -13,6 +13,7 @@ import subprocess
 import venv
 from pathlib import Path
 
+
 def setup_virtual_environment():
     """Set up a virtual environment for the required packages."""
     venv_dir = Path.home() / ".pdf_extractor_venv"
@@ -45,6 +46,7 @@ def setup_virtual_environment():
     
     return python_path
 
+
 def check_tesseract():
     """Check if Tesseract OCR is installed."""
     try:
@@ -60,6 +62,60 @@ def check_tesseract():
         print("  macOS: brew install tesseract")
         print("  Windows: download installer from https://github.com/UB-Mannheim/tesseract/wiki")
         return False
+
+
+def extract_text_from_pdf(pdf_path, output_dir):
+    """Extract text from PDF using OCR.
+    
+    This function requires the following packages:
+    - pdf2image: For converting PDF to images
+    - pytesseract: Python wrapper for Tesseract OCR
+    - pillow: For image processing
+    
+    These packages should be installed in the virtual environment.
+    """
+    # Import here to ensure these are imported from virtual environment
+    from pdf2image import convert_from_path
+    import pytesseract
+    from PIL import Image, ImageEnhance, ImageFilter
+    
+    print(f"Converting PDF to images: {pdf_path}")
+    # Convert PDF to images
+    images = convert_from_path(pdf_path)
+    
+    # Create output directory if it doesn't exist
+    output_dir = Path(output_dir)
+    output_dir.mkdir(exist_ok=True)
+    
+    print(f"Extracting text from {len(images)} pages...")
+    for i, image in enumerate(images):
+        page_num = i + 1
+        print(f"Processing page {page_num}/{len(images)}")
+        
+        # Preprocess the image to improve OCR quality
+        # Convert to grayscale
+        gray_image = image.convert('L')
+        
+        # Increase contrast
+        enhancer = ImageEnhance.Contrast(gray_image)
+        enhanced_image = enhancer.enhance(2)
+        
+        # Apply threshold to make text more distinct
+        threshold = 150
+        thresholded_image = enhanced_image.point(lambda p: p > threshold and 255)
+        
+        # Extract text using OCR
+        text = pytesseract.image_to_string(thresholded_image)
+        
+        # Save text to file
+        output_file = output_dir / f"page_{page_num:03d}.txt"
+        with open(output_file, "w", encoding="utf-8") as f:
+            f.write(text)
+        
+        print(f"Saved text from page {page_num} to {output_file}")
+    
+    print(f"Complete! Extracted text from {len(images)} pages to {output_dir}")
+
 
 def combine_text_files(output_dir, output_file="combined_text.txt"):
     """Combine all extracted text files into a single document."""
@@ -99,6 +155,7 @@ def combine_text_files(output_dir, output_file="combined_text.txt"):
         print(f"Error writing combined file: {e}")
         return False
 
+
 def main():
     parser = argparse.ArgumentParser(description="Extract text from scanned PDFs using OCR")
     parser.add_argument('--pdf_path', dest='pdf_path', help='Path to the PDF file')
@@ -133,76 +190,17 @@ def main():
     if not check_tesseract():
         return
     
-    # Setup virtual environment and get python path
-    python_path = setup_virtual_environment()
-    
-    # Create the extraction script
-    extraction_script = """
-import sys
-from pathlib import Path
-from pdf2image import convert_from_path
-import pytesseract
-from PIL import Image, ImageEnhance, ImageFilter
-
-def extract_text_from_pdf(pdf_path, output_dir):
-    print(f"Converting PDF to images: {pdf_path}")
-    # Convert PDF to images
-    images = convert_from_path(pdf_path)
-    
-    # Create output directory if it doesn't exist
-    output_dir = Path(output_dir)
-    output_dir.mkdir(exist_ok=True)
-    
-    print(f"Extracting text from {len(images)} pages...")
-    for i, image in enumerate(images):
-        page_num = i + 1
-        print(f"Processing page {page_num}/{len(images)}")
-        
-        # Preprocess the image to improve OCR quality
-        # Convert to grayscale
-        gray_image = image.convert('L')
-        
-        # Increase contrast
-        enhancer = ImageEnhance.Contrast(gray_image)
-        enhanced_image = enhancer.enhance(2)
-        
-        # Apply threshold to make text more distinct
-        threshold = 150
-        thresholded_image = enhanced_image.point(lambda p: p > threshold and 255)
-        
-        # Extract text using OCR
-        text = pytesseract.image_to_string(thresholded_image)
-        
-        # Save text to file
-        output_file = output_dir / f"page_{page_num:03d}.txt"
-        with open(output_file, "w", encoding="utf-8") as f:
-            f.write(text)
-        
-        print(f"Saved text from page {page_num} to {output_file}")
-    
-    print(f"Complete! Extracted text from {len(images)} pages to {output_dir}")
-
-if __name__ == '__main__':
-    if len(sys.argv) != 3:
-        print("Usage: python extract.py pdf_path output_dir")
-        sys.exit(1)
-    
-    pdf_path = sys.argv[1]
-    output_dir = sys.argv[2]
-    
-    extract_text_from_pdf(pdf_path, output_dir)
-"""
-    
-    # Write the extraction script to a temporary file
-    temp_script_path = Path("temp_extract_script.py")
-    with open(temp_script_path, "w") as f:
-        f.write(extraction_script)
+    # Setup virtual environment
+    setup_virtual_environment()
     
     try:
-        # Run extraction in the virtual environment
+        # Import module-level dependencies if needed
+        sys.path.insert(0, str(Path.home() / ".pdf_extractor_venv" / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages"))
+        
+        # Extract text from PDF
         output_dir = args.output_dir
-        print(f"Starting extraction process using virtual environment...")
-        subprocess.check_call([str(python_path), str(temp_script_path), str(pdf_path), output_dir])
+        print(f"Starting extraction process...")
+        extract_text_from_pdf(str(pdf_path), output_dir)
         
         # Combine text files if requested
         if args.combine:
@@ -210,10 +208,7 @@ if __name__ == '__main__':
             combine_text_files(output_dir)
     except Exception as e:
         print(f"Error during extraction: {e}")
-    finally:
-        # Clean up
-        if temp_script_path.exists():
-            temp_script_path.unlink()
+
 
 if __name__ == '__main__':
     main()
